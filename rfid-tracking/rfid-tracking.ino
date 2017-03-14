@@ -1,7 +1,7 @@
 /* RFiD Attendance Logger
- *  Author: Lilis Athanasios
- *  Hardware: Arduino Mega2560, Ethernet Shield, LCD 16x2, tinyRTC, bluetooth module, RFID RC522 module
- */
+    Author: Lilis Athanasios
+    Hardware: Arduino Mega2560, Ethernet Shield, LCD 16x2, tinyRTC, bluetooth module, RFID RC522 module
+*/
 
 #include <LiquidCrystal.h>
 #include <Ethernet.h>
@@ -24,25 +24,23 @@ LiquidCrystal lcd(22, 24, 26, 28, 30, 32);
 RTC_DS1307 rtc; //create RTC instace
 MFRC522 mfrc522(SS_PIN, RST_PIN);  // Create MFRC522 instance.
 File myFile; //file instance
-/*
-  //set ethernet shield
-  byte mac[] = {
-  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
-  };
-  IPAddress ip(195, 251, 56, 63);//4homeUse: 192, 168, 1, 5
-  IPAddress myDns(195, 251, 56 ,1);//4homeUse: 192, 168, 1, 1
-  IPAddress gateway(195, 251, 56 ,1);//4homeUse: 192, 168, 1, 1
-  IPAddress subnet(255, 255, 255, 128);//4homeUse: 255, 255, 255, 0
-  // Initialize the Ethernet server library with the IP address and port you want to use
-  EthernetServer server(80); // (port 80 is default for HTTP)
-  EthernetClient client = server.available();  // check for HTTP request
-*/
 
-DateTime arrival[2];  // tiem class for arrival
+
+//set ethernet shield
+byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(195, 251, 56, 100);//DSG-use OR-->//4homeUse: 192, 168, 1, 5
+IPAddress myDns(195, 251, 56 , 1); //DSG-use OR-->//4homeUse: 192, 168, 1, 1
+IPAddress gateway(195, 251, 56 , 1); //DSG-use OR-->//4homeUse: 192, 168, 1, 1
+IPAddress subnet(255, 255, 255, 128);//DSG-use OR-->//4homeUse: 255, 255, 255, 0
+// Initialize the Ethernet server library with the IP address and port you want to use
+EthernetServer server(80); // (port 80 is default for HTTP)
+
+
+DateTime arrival[2];  // time class for arrival
 DateTime departure[2];  // time class for departure
-int LastMonth = 0; 
+int LastMonth = 0;
 char DataRead = 0; // for character reading from a file
-unsigned int MinsA = 0, HoursA = 0;  // working minutes and hours for tag A
+//unsigned int MinsA = 0, HoursA = 0;  // working minutes and hours for tag A
 
 //0 for arrival 1 for departure
 String knownUID[8] = {
@@ -53,12 +51,14 @@ String knownUID[8] = {
 };
 String readTag = ""; // variable for making hex byte tag to string
 int flag; // possition of known tag on array
-String folder="";
+String folder = "";
+
+
 //---------------------------------------------------SETUP SECTION-----------------------------------------------------
 void setup() {
-  Serial.begin(57600);
+  Serial.begin(9600);
   while (!Serial) {
-     // -----------------------SOS----> ONLY for DEBUG
+    // -----------------------SOS----> ONLY for DEBUG
   };
   lcd.begin(16, 2);
   lcd.clear();
@@ -68,27 +68,26 @@ void setup() {
   pinMode(10, OUTPUT);
   pinMode(53, OUTPUT);
   pinMode(4, OUTPUT);
-  
+  Serial.print("trying to enable ethernet: ...");
+  //-------------initialize Ethernet------------------------------------------
+  enableEther();
+  //start the Ethernet connection with the selected server
+  Ethernet.begin(mac, ip, myDns, gateway, subnet);
+  server.begin();
+  Serial.print("server is at ");
+  Serial.println(Ethernet.localIP());
+  EthernetClient client = server.available();  // check for HTTP request
+
   //-------------initialize SD card-------------------------------------------
   enableSd(); //select SD-card SPI-slave
-  Serial.println("Initializing SD card...");
-  if (!SD.begin(4)) {
-    Serial.println("ERROR - SD card initialization failed!");
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Card error OR");
-    lcd.setCursor(0, 1);
-    lcd.print("Missing card");
-    for(;;){};// wait here for ever
-  }
-  else Serial.println("SUCCESS - SD card initialized.");
-  
+  setCard();
+
   //---------------------setting up the time --------------------------------
   if (! rtc.begin()) {
     Serial.println("Couldn't find RTC");
     lcd.clear();
     lcd.print("Clock not found");
-    for(;;){};// wait here for ever
+    for (;;) {}; // wait here for ever
   }
   if (! rtc.isrunning()) {
     Serial.println("RTC is NOT running!");
@@ -96,37 +95,31 @@ void setup() {
     lcd.print("Clock ERROR");
     Serial.println("Set clock automaticaly? 1 for Yes 0(zero) for No");
     while (Serial.available() == 0) {} //wait here until serial input
-    int ansClock= Serial.parseInt(); //read from bluetooth/serial
-    if(ansClock==0) rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    int ansClock = Serial.parseInt(); //read from bluetooth/serial
+    if (ansClock == 1) rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     // This line sets the RTC with an explicit date & time, for example to set
     // January 21, 2014 at 3am you would call:
     // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
   }
-  else{
+  else {
     lcd.clear();
     printTime();
     Serial.println("Is time correct? 1 for Yes 0(zero) for No");
     while (Serial.available() == 0) {} //wait here until serial input
-    int ansTime= Serial.parseInt(); //read from bluetooth/serial
-    if(ansTime==0) setTime(); 
+    int ansTime = Serial.parseInt(); //read from bluetooth/serial
+    if (ansTime == 0) setTime();
   }//------------------------time is set-----------------------
-  
-  //----------start the Ethernet connection and the server:--------------------
-  //enableEther(); //select Ethernet SPI-slave
-  //Ethernet.begin(mac, ip, myDns, gateway, subnet);
-  //server.begin();
-  //Serial.print("server is at ");
-  //Serial.println(Ethernet.localIP());
+
   //---------------initialize rfid connection-----------------------------
   mfrc522.PCD_Init(); // Init MFRC522 card
-  Serial.println("Scan PICC to see UID..."); 
+  Serial.println("Scan PICC to see UID...");
 }
 void loop() {
   redLED();
-  printTime();
+  printTime(); //lcd printing time
   //---------------Check for client requests-----------------
-  //enableEther();
-  //webServer();
+  enableEther();
+  webServer();
   //--------------Look for new cards-------------------------
   int succesRead = getID(); // read RFID tag
   if (succesRead == 1) { // if RFID read was succesful
@@ -170,6 +163,22 @@ void enableRfid() {
   digitalWrite(4, HIGH);
   //ENABLE spi bus from RFiD
   digitalWrite(53, LOW);
+}
+void setEther() {
+
+}
+void setCard() {
+  Serial.println("Initializing SD card...");
+  if (!SD.begin(4)) {
+    Serial.println("ERROR - SD card initialization failed!");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Card error OR");
+    lcd.setCursor(0, 1);
+    lcd.print("Missing card");
+    for (;;) {}; // wait here for ever
+  }
+  else Serial.println("SUCCESS - SD card initialized.");
 }
 //routine for setting up the time to RTC
 void setTime() {
@@ -261,38 +270,38 @@ void error() { // error option
 }
 // calculate and store data to SD card
 void StoreData(int i, String tag) {
-  String fileName=String();
+  String fileName = String();
   char file[12];
   int pos;
-  
-  DateTime time = rtc.now(); // read time from RTC  
+
+  DateTime time = rtc.now(); // read time from RTC
   if (LastMonth != time.month()) { // check if there is a new month
     LastMonth = time.month();
-    fileName="month" ;
-    fileName+= LastMonth;
-    fileName+= ".csv";
+    fileName = "month" ;
+    fileName += LastMonth;
+    fileName += ".csv";
     fileName.toCharArray(file, sizeof(file));
   }
-  else{
-    fileName="month" ;
-    fileName+= LastMonth;
-    fileName+= ".csv";
+  else {
+    fileName = "month" ;
+    fileName += LastMonth;
+    fileName += ".csv";
     fileName.toCharArray(file, sizeof(file));
   }
-  if (i>1) pos=(pos-1)/2;
-  else pos=pos-1;
-  
+  if (i > 1) pos = (pos - 1) / 2;
+  else pos = pos - 1;
+
   if (knownUID[i] == "1") { // departure
     lcd.clear();
     lcd.print("Good Bye");
     Serial.println("he/she is leaving the building");
     departure[0] = time;  // save departure time
     /* calculate working hours and minutes
-    int dh = abs(departure[0].hour() - arrival[0].hour());
-    int dm = abs(departure[0].minute() - arrival[0].minute());
-    unsigned int work = dh * 60 + dm; // working hours in minutes
-    MinsA = MinsA + work; // add working hours in minutes to working hours from this month
-    HoursA = (int)MinsA / 60; // calculate working hours from minutes
+      int dh = abs(departure[0].hour() - arrival[0].hour());
+      int dm = abs(departure[0].minute() - arrival[0].minute());
+      unsigned int work = dh * 60 + dm; // working hours in minutes
+      MinsA = MinsA + work; // add working hours in minutes to working hours from this month
+      HoursA = (int)MinsA / 60; // calculate working hours from minutes
     */
     //enableSd();
     myFile = SD.open(file, FILE_WRITE); // open file with history and write to it
@@ -321,7 +330,7 @@ void StoreData(int i, String tag) {
       lcd.print("Card ERROR");
       lcd.setCursor(0, 1);
       lcd.print("Maintaince need");
-      for(;;){};// wait here for ever
+      for (;;) {}; // wait here for ever
     }
     knownUID[i] = "0"; // reset flag
   }
@@ -357,14 +366,14 @@ void StoreData(int i, String tag) {
       lcd.print("Card ERROR!");
       lcd.setCursor(0, 1);
       lcd.print("Call Service");
-      for(;;){};// wait here for ever
+      for (;;) {}; // wait here for ever
     }
-    
+
     knownUID[i] = "1"; // set flag
     delay(100);
   }
 }
-/*
+//-----------------------------------------Web Server function--------------------------------------------//
 void webServer() {
   enableEther();
   EthernetClient client = server.available();
@@ -430,5 +439,3 @@ void webServer() {
     Ethernet.maintain();
   } // ----------------WEB SERVER END---------------------------
 }
-
-*/
